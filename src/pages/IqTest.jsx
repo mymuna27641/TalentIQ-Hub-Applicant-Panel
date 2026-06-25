@@ -29,12 +29,49 @@ function extractQuestions(res) {
   });
 }
 
-function pickScore(res) {
+function firstNumber(res, keys) {
   if (!res || typeof res !== 'object') return null;
-  for (const k of ['score', 'iq_score', 'total_score', 'percentage', 'correct']) {
-    if (typeof res[k] === 'number') return res[k];
+  for (const k of keys) {
+    const v = res[k];
+    if (typeof v === 'number' && !Number.isNaN(v)) return v;
+    if (typeof v === 'string' && v.trim() !== '' && !Number.isNaN(Number(v))) return Number(v);
   }
   return null;
+}
+
+function firstString(res, keys) {
+  if (!res || typeof res !== 'object') return null;
+  for (const k of keys) {
+    const v = res[k];
+    if (typeof v === 'string' && v.trim() !== '') return v.trim();
+  }
+  return null;
+}
+
+function pickScore(res) {
+  return firstNumber(res, ['score', 'iq_score', 'total_score', 'percentage', 'correct']);
+}
+
+// Build a friendly summary of a submitted-test result from a loosely-typed backend shape.
+function summarizeResult(res, fallbackTotal) {
+  const correct = firstNumber(res, ['correct', 'correct_answers', 'correct_count', 'num_correct']);
+  let total = firstNumber(res, ['total', 'total_questions', 'question_count', 'num_questions']);
+  if (total == null && typeof fallbackTotal === 'number' && fallbackTotal > 0) total = fallbackTotal;
+
+  let percentage = firstNumber(res, ['percentage', 'percent', 'score_percent']);
+  if (percentage == null && correct != null && total != null && total > 0) {
+    percentage = Math.round((correct / total) * 100);
+  }
+
+  const score = pickScore(res);
+  const feedback = firstString(res, ['feedback', 'message', 'summary', 'remarks', 'detail', 'comment']);
+
+  let passed = null;
+  if (typeof res?.passed === 'boolean') passed = res.passed;
+  else if (typeof res?.is_passed === 'boolean') passed = res.is_passed;
+  else if (percentage != null) passed = percentage >= 50;
+
+  return { score, correct, total, percentage, feedback, passed };
 }
 
 const IqTest = () => {
@@ -128,7 +165,13 @@ const IqTest = () => {
 
   // ---- Result view ----
   if (view === 'result') {
-    const score = pickScore(result);
+    const { score, correct, total, percentage, feedback, passed } = summarizeResult(result, questions.length);
+    // Headline number: prefer percentage, then score, then correct/total.
+    const headline = percentage != null ? `${percentage}%` : score != null ? String(score) : null;
+    const headlineColor =
+      passed === false ? 'var(--danger)' : passed === true ? 'var(--success)' : 'var(--primary)';
+    const haveAnyDetail = correct != null || total != null || score != null || percentage != null;
+
     return (
       <div className="jobs-page">
         <div className="page-header-flex" style={{ marginBottom: '1.5rem' }}>
@@ -140,18 +183,99 @@ const IqTest = () => {
             <i className="fas fa-arrow-left"></i> Back to IQ Tests
           </button>
         </div>
-        <div className="content-card" style={{ textAlign: 'center', maxWidth: 420, margin: '0 auto' }}>
-          {score != null ? (
+
+        <div className="content-card" style={{ textAlign: 'center', maxWidth: 460, margin: '0 auto' }}>
+          {headline != null ? (
             <>
-              <h3><i className="fas fa-trophy"></i> Your Score</h3>
-              <div style={{ fontSize: '3.5rem', fontWeight: 800, color: 'var(--primary)' }}>{score}</div>
+              <h3 style={{ marginBottom: '0.5rem' }}>
+                <i className="fas fa-trophy" style={{ color: 'var(--warning)' }}></i> Your Score
+              </h3>
+              <div style={{ fontSize: '3.5rem', fontWeight: 800, color: headlineColor, lineHeight: 1.1 }}>
+                {headline}
+              </div>
+              {passed != null && (
+                <div
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    marginTop: '0.5rem',
+                    padding: '0.3rem 0.85rem',
+                    borderRadius: '999px',
+                    fontSize: '0.8rem',
+                    fontWeight: 700,
+                    color: passed ? 'var(--success)' : 'var(--danger)',
+                    background: passed ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)',
+                  }}
+                >
+                  <i className={`fas ${passed ? 'fa-circle-check' : 'fa-circle-xmark'}`}></i>
+                  {passed ? 'Passed' : 'Did not pass'}
+                </div>
+              )}
             </>
           ) : (
-            <h3>Your answers were recorded.</h3>
+            <h3 style={{ marginBottom: 0 }}>
+              <i className="fas fa-circle-check" style={{ color: 'var(--success)' }}></i> Your answers were recorded
+            </h3>
           )}
-          <pre style={{ whiteSpace: 'pre-wrap', textAlign: 'left', fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '1rem' }}>
-            {JSON.stringify(result, null, 2)}
-          </pre>
+
+          {percentage != null && (
+            <div
+              style={{
+                height: 8,
+                background: '#eef2f9',
+                borderRadius: 10,
+                overflow: 'hidden',
+                margin: '1.25rem 0 0.25rem',
+              }}
+            >
+              <div
+                style={{
+                  height: '100%',
+                  width: `${Math.max(0, Math.min(100, percentage))}%`,
+                  background: headlineColor,
+                  borderRadius: 10,
+                  transition: 'width 0.3s ease',
+                }}
+              />
+            </div>
+          )}
+
+          {(correct != null && total != null) && (
+            <p style={{ color: 'var(--text-secondary)', marginTop: '1rem', fontSize: '0.95rem' }}>
+              You answered <strong>{correct}</strong> of <strong>{total}</strong> questions correctly.
+            </p>
+          )}
+
+          {feedback && (
+            <div
+              style={{
+                marginTop: '1.25rem',
+                padding: '1rem',
+                background: 'var(--primary-soft)',
+                borderRadius: 'var(--radius-md)',
+                textAlign: 'left',
+                color: 'var(--text-secondary)',
+                fontSize: '0.9rem',
+                lineHeight: 1.5,
+              }}
+            >
+              <strong style={{ display: 'block', marginBottom: '0.35rem', color: 'var(--text-main)' }}>
+                <i className="fas fa-lightbulb" style={{ color: 'var(--warning)' }}></i> Feedback
+              </strong>
+              {feedback}
+            </div>
+          )}
+
+          {!haveAnyDetail && !feedback && (
+            <p style={{ color: 'var(--text-secondary)', marginTop: '1rem', fontSize: '0.9rem' }}>
+              Your results will appear under <strong>Past Attempts</strong>.
+            </p>
+          )}
+
+          <button className="btn btn-secondary btn-sm" onClick={backHome} style={{ marginTop: '1.5rem' }}>
+            <i className="fas fa-clock-rotate-left"></i> View Past Attempts
+          </button>
         </div>
       </div>
     );

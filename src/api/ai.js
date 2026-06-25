@@ -24,7 +24,12 @@ export function iqHistory() {
 }
 
 // ---- CV Analysis ----
-// Uploads a CV file against a job; backend returns the parsed analysis.
+// Flow: upload -> analyze -> result (see /swagger).
+//   1. POST /ai/cv/upload/{job_id}/     -> upload record (with an id)
+//   2. POST /ai/cv/analyze/{upload_id}/ -> runs the AI analysis
+//   3. GET  /ai/cv/result/{upload_id}/  -> the analysis result
+
+// Uploads a CV file against a job; backend returns an upload record (with an id).
 export function uploadCv(jobId, file) {
   const form = new FormData();
   form.append('file', file);
@@ -33,4 +38,24 @@ export function uploadCv(jobId, file) {
     body: form,
     isForm: true,
   });
+}
+
+// Triggers the AI analysis for a previously uploaded CV.
+export function analyzeCv(uploadId) {
+  return api.post(`/ai/cv/analyze/${uploadId}/`);
+}
+
+// Fetches the analysis result for a previously uploaded CV.
+export function cvResult(uploadId) {
+  return api.get(`/ai/cv/result/${uploadId}/`);
+}
+
+// Fetches the human-readable review for a previously uploaded CV.
+export function cvReview(uploadId) {
+  return api.get(`/ai/cv/review/${uploadId}/`);
+}
+
+// CV ranking leaderboard for a job.
+export function cvLeaderboard(jobId) {
+  return api.get(`/ai/cv/leaderboard/${jobId}/`);
 }
